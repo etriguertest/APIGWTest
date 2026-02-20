@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Infraestructura para API de Consulta de Saldo (DynamoDB + Lambda + API GW)
+
+Resources:
+  # 1. Tabla de DynamoDB
+  TablaBanca:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ClientesBanco
+      AttributeDefinitions:
+        - AttributeName: ClienteID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ClienteID
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  # 2. Rol de IAM para la Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      Policies:
+        - PolicyName: DynamoDBReadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:GetItem'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: !GetAtt TablaBanca.Arn
+
+  # 3. Función Lambda
+  ConsultaSaldoLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ConsultarSaldoFunction
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('ClientesBanco')
+          def lambda_handler(event, context):
+              cliente_id = event.get('queryStringParameters', {}).get('id')
+              if not cliente_id:
+                  return {'statusCode': 400, 'body': json.dumps('Falta el ID del cliente')}
+              response = table.get_item(Key={'ClienteID': cliente_id})
+              item = response.get('Item')
+              if not item:
+                  return {'statusCode': 404, 'body': json.dumps('Cliente no encontrado')}
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({'cliente': item['Nombre'], 'saldo': str(item['Saldo'])})
+              }
+
+  # 4. API Gateway (REST API)
+  MiApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: BancoAPI
+
+  ApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt MiApiGateway.RootResourceId
+      PathPart: consulta
+      RestApiId: !Ref MiApiGateway
+
+  ApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref ApiResource
+      RestApiId: !Ref MiApiGateway
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - LambdaArn: !GetAtt ConsultaSaldoLambda.Arn
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ApiMethod
+    Properties:
+      RestApiId: !Ref MiApiGateway
+      StageName: prod
+
+  # Permiso para que API Gateway llame a la Lambda
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref ConsultaSaldoLambda
+      Principal: apigateway.amazonaws.com
+
+Outputs:
+  ApiUrl:
+    Description: "URL de la API para consultar"
+    Value: !Sub "https://${MiApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/consulta?id=1"

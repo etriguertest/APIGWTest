@@ -1,0 +1,41 @@
+#S3 URL: https://s3.us-east-2.amazonaws.com/cf-templates-13680c1iu988i-us-east-2/2026-02-19T221140.189Znk3-dynamodb-cuentas.yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Plantilla de CloudFormation para crear la tabla de Cuentas en DynamoDB'
+
+Resources:
+  TablaCuentas:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Cuentas
+      # Definimos los atributos que serán usados como claves (Principal o Índices)
+      AttributeDefinitions:
+        - AttributeName: idCuenta
+          AttributeType: S  # 'S' significa String
+        - AttributeName: clienteId
+          AttributeType: N  # 'N' significa Number (para nuestro Long en Java)
+
+      # Definimos la Clave Primaria de la tabla
+      KeySchema:
+        - AttributeName: idCuenta
+          KeyType: HASH     # HASH significa Clave de Partición (Partition Key)
+
+      # Definimos el Índice Secundario Global para buscar por clienteId
+      GlobalSecondaryIndexes:
+        - IndexName: ClienteIdIndex
+          KeySchema:
+            - AttributeName: clienteId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL # Proyecta todos los atributos de la tabla en el índice
+
+      # Usamos el modo bajo demanda (sin capacidad aprovisionada fija).
+      # Es ideal y más barato para pruebas o cargas de trabajo impredecibles.
+      BillingMode: PAY_PER_REQUEST
+
+Outputs:
+  NombreTabla:
+    Description: Nombre de la tabla de DynamoDB creada
+    Value: !Ref TablaCuentas
+  ArnTabla:
+    Description: ARN de la tabla de DynamoDB
+    Value: !GetAtt TablaCuentas.Arn

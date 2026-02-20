@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Capa 1 - Almacenamiento (S3 y DynamoDB)
+
+Resources:
+  # 1. Bucket para los JARs
+  MiBucketLambda:
+    Type: AWS::S3::Bucket
+    Properties:
+      # Genera un nombre único: bucket-banco-123456789-us-east-1
+      BucketName: !Sub "bucket-lambda-banco-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+
+  # 2. Tabla de DynamoDB
+  TablaBanca:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ClientesBanco
+      AttributeDefinitions:
+        - AttributeName: ClienteID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ClienteID
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+Outputs:
+  BucketName:
+    Description: Nombre del bucket creado
+    Value: !Ref MiBucketLambda
+    Export:
+      Name: !Sub "${AWS::StackName}-BucketName"
+
+  TablaArn:
+    Description: ARN de la tabla DynamoDB
+    Value: !GetAtt TablaBanca.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-TablaArn"
